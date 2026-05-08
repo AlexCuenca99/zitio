@@ -1,0 +1,10 @@
+-r requirements.txt
+
+pre-commit==4.6.0
+
+# Formatting and Linting
+ruff==0.15.12
+
+# Security
+bandit==1.9.4
+detect-secrets==1.5.0
