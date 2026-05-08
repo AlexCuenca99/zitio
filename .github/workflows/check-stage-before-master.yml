@@ -1,0 +1,16 @@
+name: master-only-from-stage
+on:
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  validar-origen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar si viene de Stage
+        run: |
+          if [ "${{ github.head_ref }}" != "stage" ]; then
+            echo "ERROR: Only 'stage' branch can merge into master."
+            exit 1
+          fi
