@@ -1,0 +1,19 @@
+[tool.ruff]
+line-length = 100
+indent-width = 4
+preview = false
+
+[tool.ruff.lint]
+select = ["W291", "E4", "E7", "E9", "B", "Q", "F401", "F821", "N", "I"]
+ignore = ["E731", "B006", "B023", "E203", "N818", "B904", "N805"]
+dummy-variable-rgx = "^_$"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+docstring-code-format = true
+docstring-code-line-length = 20
+
+[tool.bandit]
+exclude_dirs = ["tests"]
