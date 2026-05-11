@@ -1,0 +1,39 @@
+substitutions:
+  _DOCKERFILE_PATH: "docker/production/Dockerfile"
+  _SERVICE_NAME: "cr-amazon-get-token"
+  _REGION: "us-central1"
+
+steps:
+  # 1. Build .env.yaml from Secret Manager
+  - id: "Create .env from secret"
+    name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        gcloud secrets versions access latest --project=$_PROJECT_ID --secret="${_SECRETS_NAME}" > /workspace/.env.yaml
+
+  # 2. Build the Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$_PROJECT_ID/$_SERVICE_NAME:$COMMIT_SHA', '-f', '$_DOCKERFILE_PATH', '.']
+
+  # 3. Upload the image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$_PROJECT_ID/$_SERVICE_NAME:$COMMIT_SHA']
+
+  # 4. Deploy the image to Cloud Run Gen 2
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        gcloud run deploy $_SERVICE_NAME \
+          --image gcr.io/$_PROJECT_ID/$_SERVICE_NAME:$COMMIT_SHA \
+          --region us-central1 \
+          --execution-environment=gen2 \
+          --project=$_PROJECT_ID \
+          --vpc-connector=$_VPC_ROUTE \
+          --env-vars-file=/workspace/.env.yaml \
+
+images:
+  - 'gcr.io/$_PROJECT_ID/$_SERVICE_NAME:$COMMIT_SHA'
