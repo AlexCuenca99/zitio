@@ -1,6 +1,7 @@
 """Application bootstrap."""
 
 from src.app.blueprints.v1.health.health_bp import create_health_bp
+from src.app.blueprints.v1.users import users_bp
 
 # from src.app.blueprints.v1.shippers.shippers_bp import create_shippers_bp
 from src.app.create_app import create_app
@@ -23,14 +24,14 @@ def build_app(environment):
         health_use_case=dependencies["health_use_case"],
     )
 
-    # shippers_bp = create_shippers_bp(
-    #     get_shipper_use_case=dependencies["get_shipper_use_case"],
-    # )
+    inj_users_bp = users_bp(
+        users_use_case=dependencies["users_use_case"],
+    )
 
     return create_app(
         blueprints=[
             health_bp,
-            # shippers_bp
+            inj_users_bp,
         ],
         logger=logger,
     )
