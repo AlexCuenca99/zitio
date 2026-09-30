@@ -7,6 +7,7 @@ from src.app.blueprints.v1.users import users_bp
 from src.app.create_app import create_app
 from src.app.initialization import ConnectionInitializer
 from src.bootstrap.dependencies import build_dependencies
+from src.infra.db.firestore import get_firestore_client
 from src.infra.loggers.logger_default import LoggerDefault
 
 
@@ -14,7 +15,7 @@ def build_app(environment):
     """Build the Flask application with all dependencies."""
     logger = LoggerDefault(environment=environment)
 
-    initializer = ConnectionInitializer(logger)
+    initializer = ConnectionInitializer(logger, firestore_client=get_firestore_client())
     if not initializer.initialize_all():
         raise RuntimeError("Failed to initialize connections")
 

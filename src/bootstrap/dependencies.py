@@ -1,6 +1,6 @@
 """This module defines the application dependency factory."""
 
-from src.infra.db.firestore.firestore_base import firestore_client
+from src.infra.db.firestore import get_firestore_client
 from src.infra.db.firestore.repositories import UsersFirestoreRepository
 from src.infra.loggers.logger_default import LoggerDefault
 from src.interactor.use_cases.health.health_use_case import HealthUseCase
@@ -20,6 +20,8 @@ from src.interactor.use_cases.users.users_use_case import UsersUseCase
 
 def build_dependencies(logger: LoggerDefault):
     """Build all application dependencies."""
+    firestore_client = get_firestore_client()
+
     # shipper_firestore_repository = ShipperFirestoreRepository(
     #     firestore_client=firestore_client,
     # )

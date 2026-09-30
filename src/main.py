@@ -4,17 +4,17 @@
 from flask import Flask
 
 # Locals
-from configs.config import FLASK_DEBUG, FLASK_HOST, environment
+from configs.config import settings
 from src.bootstrap.app import build_app
 
 
 def start_app() -> Flask:
     """Initialize and start the Flask application."""
-    return build_app(environment=environment)
+    return build_app(environment=settings.environment)
 
 
 # Create app instance for Gunicorn
 app = start_app()
 
 if __name__ == "__main__":
-    app.run(debug=FLASK_DEBUG, host=FLASK_HOST, port=5000)
+    app.run(debug=settings.flask_debug, host=settings.flask_host, port=5000)

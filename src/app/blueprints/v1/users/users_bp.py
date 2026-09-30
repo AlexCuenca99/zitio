@@ -1,4 +1,4 @@
-"""Users blueprint exposing create, get, list, get_by_id, get_by_age."""
+"""Users blueprint exposing create, get and list."""
 
 from flask import Blueprint, request
 
@@ -15,7 +15,7 @@ def users_bp(users_use_case: UsersUseCase, version: str = "v1"):
 
     @bp.get("/<string:uid>")
     def get_user(uid: str):
-        return users_use_case.get_by_id(uid)
+        return users_use_case.get(uid)
 
     @bp.get("")
     def list_users():
