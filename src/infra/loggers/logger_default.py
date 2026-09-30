@@ -8,32 +8,27 @@ from typing import Any
 import google.cloud.logging
 from flask import has_request_context, request
 
+# Locals
+from configs.config import settings
+
 # Interfaces
 from src.interactor.interfaces.logger import LoggerInterface
 
 # Constants
-from src.utils.constants import (
-    ENVIRONMENT,
-    LOG_LEVEL,
-    LOGGING_TRACE_CONTEXT_HEADER,
-    PRODUCTION_ENVIRONMENT,
-    PROJECT_ID,
-    SERVICE_NAME,
-    SHOW_TRACEBACK,
-)
+from src.utils.constants import LOGGING_TRACE_CONTEXT_HEADER, PRODUCTION_ENVIRONMENT
 
 
 class LoggerDefault(LoggerInterface):
     """LoggerDefault class."""
 
     def __init__(self, environment: str = PRODUCTION_ENVIRONMENT):
-        self.show_traceback = SHOW_TRACEBACK
-        self.project_id = PROJECT_ID
-        self.service_name = SERVICE_NAME
-        self.environment = ENVIRONMENT
+        self.show_traceback = settings.show_traceback
+        self.project_id = settings.project_id
+        self.service_name = settings.service_name
+        self.environment = settings.environment
         self.runtime_environment = environment
         self.logger = logging.getLogger(self.service_name)
-        self.logger.setLevel(LOG_LEVEL)
+        self.logger.setLevel(settings.log_level)
 
         if environment == PRODUCTION_ENVIRONMENT:
             client = google.cloud.logging.Client()
@@ -54,7 +49,7 @@ class LoggerDefault(LoggerInterface):
             logging.basicConfig(
                 datefmt="%Y-%m-%d %H:%M:%S",
                 format="%(asctime)-s - %(levelname)s - %(message)s",
-                level=LOG_LEVEL,
+                level=settings.log_level,
             )
             self.logger.info(
                 "LOGGER_BOOTSTRAP_LOCAL",

@@ -39,9 +39,6 @@ class UsersUseCase:
 
         return {"status": "success", "data": user.model_dump(mode="json")}
 
-    def get_by_id(self, uid: str) -> dict:
-        return self.get(uid)
-
     def list(self, **kwargs) -> dict:
         min_age = kwargs.get("min_age", None)
         max_age = kwargs.get("max_age", None)
