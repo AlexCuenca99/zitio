@@ -1,3 +1,3 @@
-from .users_use_case import UsersUseCaseInterface
+from .users_use_case import UsersUseCase
 
-__all__ = ["UsersUseCaseInterface"]
+__all__ = ["UsersUseCase"]

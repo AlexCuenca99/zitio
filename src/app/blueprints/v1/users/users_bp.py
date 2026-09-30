@@ -2,10 +2,10 @@
 
 from flask import Blueprint, request
 
-from src.interactor.interfaces.users.users_use_case import UsersUseCaseInterface
+from src.interactor.use_cases.users.users_use_case import UsersUseCase
 
 
-def users_bp(users_use_case: UsersUseCaseInterface, version: str = "v1"):
+def users_bp(users_use_case: UsersUseCase, version: str = "v1"):
     bp = Blueprint("users_v1", __name__, url_prefix=f"/api/{version}/users")
 
     @bp.post("")

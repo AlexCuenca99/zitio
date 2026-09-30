@@ -1,4 +1,4 @@
-"""Consolidated UsersUseCase implementing the UsersUseCaseInterface."""
+"""Consolidated UsersUseCase exposing user operations."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from src.domain.entities.user import User
 from src.interactor.errors.users.users_errors import UsersNotFoundError
 from src.interactor.interfaces.logger import LoggerInterface
 from src.interactor.interfaces.users.users_repository import UsersRepositoryInterface
-from src.interactor.interfaces.users.users_use_case import UsersUseCaseInterface
 
 
 def _age_from_birthdate(birth_date: date) -> int:
@@ -20,7 +19,7 @@ def _age_from_birthdate(birth_date: date) -> int:
     )
 
 
-class UsersUseCase(UsersUseCaseInterface):
+class UsersUseCase:
     """Single use case exposing several user operations."""
 
     def __init__(self, users_repository: UsersRepositoryInterface, logger: LoggerInterface):
