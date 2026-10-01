@@ -3,141 +3,174 @@
 # Natives
 import json
 import time
-from typing import Dict, Tuple, Union
 
 # Third-parties
-from flask import Blueprint, Flask, Response, g, jsonify, request
+from flask import Blueprint, Flask, Response, g
+from pydantic import ValidationError
 from werkzeug.exceptions import HTTPException
 
 # Locals
 from src.infra.loggers.logger_default import LoggerDefault
-from src.interactor.errors.base_errors import BaseError
-
-# Error mappings
-from src.interactor.errors.mappings import ERROR_MAPPINGS
+from src.interactor.errors import (
+    BaseError,
+    InternalError,
+    ParamInvalidError,
+    ParamRequiredError,
+)
 from src.utils.content_types import (
     APPLICATION_JSON,
     CONTENT_TYPE,
     is_multipart,
 )
 
-# If you use an ApiResponseUseCase-like functionality, import it here (optional)
-# from src.usecases.api_response_usecase import ApiResponseUseCase
-
-
-def format_error_response(
-    error: Exception,
-    error_code: int,
-    logger: LoggerDefault,
-    is_known_exception: bool = True,
-) -> Tuple[Dict[str, Union[str, int, Dict]], int]:
-    """
-    Format an error into a standard JSON response.
-
-    Returns (response_dict, http_status)
-    """
-    # Decide what to log
-    error_to_log = error.our_error if hasattr(error, "our_error") else str(error)
-
-    # Log as info for known errors; unexpected errors as exception
-    if is_known_exception:
-        try:
-            track_code = logger.log_info(f"{error_code} - Handled Error: {error_to_log}")
-        except Exception:
-            track_code = None
-    else:
-        try:
-            track_code = logger.log_exception(f"{error_code} - Unhandled Error: {error_to_log}")
-        except Exception:
-            track_code = None
-
-    # Build error object
-    err_obj = {
-        "type": error.__class__.__name__,
-        "code": getattr(error, "error_code", None),
-        "title": getattr(error, "message", None) or str(error),
-        "detail": getattr(error, "details", None)
-        or (
-            getattr(error, "fields_with_erros", None)
-            if hasattr(error, "fields_with_erros")
-            else str(error)
-        ),
-        "trace_code": track_code,
-        "gcp_issue_link": None,  # keep placeholder if you want to add link logic
-    }
-
-    # remove None values
-    err_obj = {k: v for k, v in err_obj.items() if v is not None}
-
-    response = {
-        "status": "fail",
-        "status_code": error_code,
-        "meta": {},
-        "message": str(error),
-        "errors": [err_obj],
-    }
-
-    return response, error_code
+# Client messages for the HTTP errors Flask/werkzeug raise on their own (or via abort()).
+HTTP_CLIENT_MESSAGES = {
+    400: "La solicitud no es válida.",
+    401: "No autenticado.",
+    403: "No tienes permisos para realizar esta acción.",
+    404: "El recurso solicitado no existe.",
+    405: "Método no permitido para este recurso.",
+    409: "La solicitud entra en conflicto con el estado actual del recurso.",
+    415: "Tipo de contenido no soportado.",
+    429: "Demasiadas solicitudes. Intenta más tarde.",
+}
 
 
 def _register_error_handlers(app: Flask, logger: LoggerDefault) -> None:
-    """
-    Register exception handlers for Flask app using ERROR_MAPPINGS.
+    """Register the handlers that turn every error into the BaseError.to_dict body.
 
-    Each mapping: exception class -> HTTP status code
+    Args:
+        app: Flask application to register the handlers on.
+        logger: Logger the handlers report every error to.
     """
 
-    def create_error_handler(status_code: int):
-        def handle_error(error):
-            return format_error_response(
-                error=error, error_code=status_code, logger=logger, is_known_exception=True
+    def base_error_handler(error: BaseError) -> tuple[dict, int]:
+        """Log an API error and answer with its body and status.
+
+        Client errors (4xx) are logged as warnings; server errors (5xx) as errors with
+        the traceback.
+
+        Args:
+            error: Error to report.
+
+        Returns:
+            The error body and its HTTP status code.
+        """
+        trace_id = logger.extract_trace_id_from_request()
+        context = {
+            "log_type": "app_error",
+            "trace_id": trace_id,
+            "error_code": error.error_code,
+            "status_code": error.status_code,
+            "error_message": error.message,
+            "details": error.details or None,
+        }
+        if error.status_code >= 500:
+            logger.log_exception(error.log_event, **context)
+        else:
+            logger.log_warning(error.log_event, **context)
+
+        return error.to_dict(request_id=trace_id), error.status_code
+
+    def validation_error_handler(error: ValidationError) -> tuple[dict, int]:
+        """Map an unhandled Pydantic ValidationError to the standard error response.
+
+        A missing field and a malformed one are different failures: reporting both as
+        "required" sends the caller looking for a field it did send.
+
+        Args:
+            error: Validation error raised while building a model from client input.
+
+        Returns:
+            The error body and its HTTP status code, from base_error_handler.
+        """
+        # Only loc/type/msg: input may echo sensitive data and ctx may not serialize.
+        errors = [
+            {
+                # An empty loc means the whole body failed (e.g. a JSON list or null).
+                "param": ".".join(str(part) for part in item["loc"]) or "body",
+                "type": item["type"],
+                "reason": item["msg"],
+            }
+            for item in error.errors()
+        ]
+        first = errors[0]
+
+        if first["type"] == "missing":
+            return base_error_handler(
+                ParamRequiredError(param_name=first["param"], scope=error.title)
             )
+        return base_error_handler(
+            ParamInvalidError(
+                param_name=first["param"],
+                reason=first["reason"],
+                scope=error.title,
+                errors=errors,
+            )
+        )
 
-        return handle_error
+    def http_error_handler(error: HTTPException) -> tuple[dict, int]:
+        """Map an HTTP error raised by Flask or werkzeug to the standard error response.
 
-    # Register handlers for known exception classes
-    for exc_cls, status_code in ERROR_MAPPINGS.items():
-        app.register_error_handler(exc_cls, create_error_handler(status_code))
+        Args:
+            error: HTTP error such as a 404 for an unknown route or a 405 method.
 
-    # HTTPException (werkzeug) handler
-    @app.errorhandler(HTTPException)
-    def handle_http_error(error: HTTPException):
-        try:
-            logger.log_exception(str(error.__class__.__name__))
-            logger.log_exception(str(error.description))
-        except Exception as log_error:
-            app.logger.debug("Failed to log HTTPException: %s", log_error)
+        Returns:
+            The error body with an ``http.<name>`` code and its HTTP status code.
+        """
+        status_code = error.code or 500
+        name = (error.name or "error").lower().replace(" ", "_")
+        return base_error_handler(
+            BaseError(
+                status_code=status_code,
+                message=error.description,
+                client_message=HTTP_CLIENT_MESSAGES.get(
+                    status_code,
+                    "Ocurrió un error interno."
+                    if status_code >= 500
+                    else "La solicitud no es válida.",
+                ),
+                error_code=f"http.{name}",
+                error_type="api_error" if status_code >= 500 else "invalid_request_error",
+            )
+        )
 
-        response = {"error": error.__class__.__name__, "message": error.description}
-        return response, error.code
+    def unhandled_error_handler(error: Exception) -> tuple[dict, int]:
+        """Answer any unexpected exception with a generic 500.
 
-    # Generic exception handler
-    @app.errorhandler(Exception)
-    def handle_general_exception(error):
-        # If it's our BaseError (or subclass), prefer its status_code and to_dict
-        if isinstance(error, BaseError):
-            # Centralize logging via logger
-            try:
-                logger.log_warning(
-                    "APP_ERROR",
-                    log_type="app_error",
-                    error_code=getattr(error, "error_code", None),
-                    status_code=getattr(error, "status_code", None),
-                    message=str(error),
-                )
-            except Exception as log_error:
-                app.logger.debug("Failed to log BaseError: %s", log_error)
+        The original error never reaches the client; its traceback goes to the logs.
 
-            request_id = request.headers.get("X-Request-Id")
-            return jsonify(error.to_dict(request_id=request_id)), error.status_code
+        Args:
+            error: Exception no other handler matched.
 
-        # Otherwise, treat as unexpected
-        return format_error_response(error, 500, logger, is_known_exception=False)
+        Returns:
+            The internal error body and the 500 status code.
+        """
+        trace_id = logger.extract_trace_id_from_request()
+        logger.log_exception(
+            "internal_error",
+            log_type="app_error",
+            trace_id=trace_id,
+            error=repr(error),
+        )
+        internal = InternalError()
+        return internal.to_dict(request_id=trace_id), 500
+
+    app.register_error_handler(BaseError, base_error_handler)
+    app.register_error_handler(ValidationError, validation_error_handler)
+    app.register_error_handler(HTTPException, http_error_handler)
+    app.register_error_handler(Exception, unhandled_error_handler)
 
 
 def create_app(blueprints: list[Blueprint], logger: LoggerDefault) -> Flask:
-    """
-    Create and configure the Flask application, register blueprints and error handlers.
+    """Create and configure the Flask application.
+
+    Args:
+        blueprints: Blueprints to register.
+        logger: Logger the error handlers report to.
+
+    Returns:
+        The configured application with its blueprints and error handlers.
     """
     app = Flask(__name__)
     app.config["logger"] = logger
@@ -149,11 +182,20 @@ def create_app(blueprints: list[Blueprint], logger: LoggerDefault) -> Flask:
     _register_error_handlers(app, logger)
 
     @app.before_request
-    def before_request():
+    def before_request() -> None:
+        """Store the request start time to measure its execution time."""
         g.start = time.perf_counter()
 
     @app.after_request
-    def after_request(response: Response):
+    def after_request(response: Response) -> Response:
+        """Append the execution time to successful responses.
+
+        Args:
+            response: Response about to be sent.
+
+        Returns:
+            The same response, with ``meta.exec_seconds`` when its status is 200.
+        """
         # Append execution time and keep existing logic
         if response.status_code == 200:
             append_time_execution_after_request(response)
@@ -166,8 +208,15 @@ def create_app(blueprints: list[Blueprint], logger: LoggerDefault) -> Flask:
     return app
 
 
-def append_time_execution_after_request(response: Response):
-    """Append the execution time to the response after each request."""
+def append_time_execution_after_request(response: Response) -> Response:
+    """Append the execution time to a JSON response.
+
+    Args:
+        response: Response whose JSON body gets ``meta.exec_seconds``.
+
+    Returns:
+        The same response; multipart and non-dict bodies are left untouched.
+    """
 
     content_type = response.headers.get(CONTENT_TYPE, "")
 
