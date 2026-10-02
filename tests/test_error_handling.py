@@ -266,10 +266,3 @@ def test_internal_error_never_exposes_the_technical_message():
     error = InternalError("users.internal_error", message="firestore write timed out")
     assert error.message == "firestore write timed out"
     assert "firestore" not in error.to_dict()["error"]["message"]
-
-
-if __name__ == "__main__":
-    tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
-    for test in tests:
-        test()
-    print(f"{len(tests)} passed")
