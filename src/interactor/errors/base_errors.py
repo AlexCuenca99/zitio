@@ -225,6 +225,31 @@ class NotFoundError(BaseError):
         )
 
 
+class UnauthenticatedError(BaseError):
+    """Raised when the request carries no valid credentials."""
+
+    def __init__(
+        self,
+        code: str = "auth.token_invalid",
+        *,
+        message: str | None = None,
+        scope: str | None = None,
+    ):
+        """Initialize the error from its catalog code.
+
+        Args:
+            code: Error code from the catalog (e.g. "auth.token_expired").
+            message: Technical reason in English, used in logs only.
+            scope: Operation or flow that required authentication.
+        """
+        kwargs = _from_catalog(code, 401)
+        if message:
+            kwargs["message"] = message
+        # The verifier's reason may reveal internals; the client gets the catalog message.
+        kwargs["client_message"] = kwargs["client_message"] or "No autenticado."
+        super().__init__(**kwargs, details={"scope": scope} if scope else None)
+
+
 class InternalError(BaseError):
     """Raised when the service fails on its own side; the client never sees the cause."""
 

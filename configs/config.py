@@ -25,6 +25,15 @@ class FirestoreSettings(BaseSettings):
     emulator_host: str | None = None
 
 
+class FirebaseSettings(BaseSettings):
+    """Firebase settings, read from FIREBASE_* environment variables."""
+
+    model_config = SettingsConfigDict(env_prefix="FIREBASE_", env_file=ENV_FILE, extra="ignore")
+
+    # host:port of the local Auth emulator. When set, ID tokens are verified against it.
+    auth_emulator_host: str | None = None
+
+
 class Settings(BaseSettings):
     """Settings read from the environment once at instantiation."""
 
@@ -44,10 +53,19 @@ class Settings(BaseSettings):
     flask_host: str = "127.0.0.1"
 
     firestore: FirestoreSettings = Field(default_factory=FirestoreSettings)
+    firebase: FirebaseSettings = Field(default_factory=FirebaseSettings)
 
     @field_validator("log_level")
     @classmethod
     def _uppercase(cls, v: str) -> str:
+        """Normalize the log level to the uppercase names logging expects.
+
+        Args:
+            v: Log level as read from the environment.
+
+        Returns:
+            The log level in uppercase.
+        """
         return v.upper()
 
 

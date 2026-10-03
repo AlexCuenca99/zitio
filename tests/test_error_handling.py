@@ -14,78 +14,20 @@ from src.interactor.errors import (
     ParamRequiredError,
 )
 from src.interactor.use_cases.users import UsersUseCase
+from tests.fakes import (
+    VALID_TOKEN,
+    InMemoryUsersRepository,
+    RecordingLogger,
+    fake_verify_id_token,
+)
 
 SRC_DIR = Path(__file__).resolve().parent.parent / "src"
 
 
-class InMemoryUsersRepository:
-    """Users repository kept in memory, so the checks need no Firestore."""
-
-    def __init__(self):
-        """Start with no users."""
-        self.users = {}
-
-    def create(self, user):
-        """Store a user.
-
-        Args:
-            user: User entity to store.
-
-        Returns:
-            The stored user.
-        """
-        self.users[user.uid] = user
-        return user
-
-    def get_by_uid(self, uid):
-        """Get a user by uid.
-
-        Args:
-            uid: Identifier of the user.
-
-        Returns:
-            The user, or None when it does not exist.
-        """
-        return self.users.get(uid)
-
-    def list_all(self):
-        """List every stored user.
-
-        Returns:
-            The stored users.
-        """
-        return list(self.users.values())
-
-
-class RecordingLogger:
-    """Logger that records which level and message every call used."""
-
-    def __init__(self):
-        """Start with no recorded calls."""
-        self.calls = []
-
-    def extract_trace_id_from_request(self):
-        """Return a fixed trace id.
-
-        Returns:
-            The trace id every response must carry as request_id.
-        """
-        return "trace-123"
-
-    def __getattr__(self, level):
-        """Record any log_* call instead of logging it.
-
-        Args:
-            level: Name of the logger method called (e.g. "log_warning").
-
-        Returns:
-            A function that records ``(level, message)``.
-        """
-        return lambda message, **context: self.calls.append((level, message))
-
-
 def _client():
     """Build a test client over the users endpoints plus routes that always fail.
+
+    Every request carries a valid Bearer token, so the users endpoints reach their logic.
 
     Returns:
         The Flask test client and the logger recording its calls.
@@ -114,8 +56,14 @@ def _client():
         """
         abort(status_code)
 
-    app = create_app([users_bp(UsersUseCase(InMemoryUsersRepository(), logger)), boom], logger)
-    return app.test_client(), logger
+    app = create_app(
+        [users_bp(UsersUseCase(InMemoryUsersRepository(), logger)), boom],
+        logger,
+        verify_id_token=fake_verify_id_token,
+    )
+    client = app.test_client()
+    client.environ_base["HTTP_AUTHORIZATION"] = f"Bearer {VALID_TOKEN}"
+    return client, logger
 
 
 def _error(response, status_code, code):

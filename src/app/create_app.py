@@ -3,6 +3,7 @@
 # Natives
 import json
 import time
+from collections.abc import Callable
 
 # Third-parties
 from flask import Blueprint, Flask, Response, g
@@ -10,6 +11,7 @@ from pydantic import ValidationError
 from werkzeug.exceptions import HTTPException
 
 # Locals
+from src.app.auth import VERIFIER_CONFIG_KEY
 from src.infra.loggers.logger_default import LoggerDefault
 from src.interactor.errors import (
     BaseError,
@@ -44,7 +46,7 @@ def _register_error_handlers(app: Flask, logger: LoggerDefault) -> None:
         logger: Logger the handlers report every error to.
     """
 
-    def base_error_handler(error: BaseError) -> tuple[dict, int]:
+    def base_error_handler(error: BaseError) -> tuple[dict, int, dict]:
         """Log an API error and answer with its body and status.
 
         Client errors (4xx) are logged as warnings; server errors (5xx) as errors with
@@ -54,7 +56,7 @@ def _register_error_handlers(app: Flask, logger: LoggerDefault) -> None:
             error: Error to report.
 
         Returns:
-            The error body and its HTTP status code.
+            The error body, its HTTP status code and the response headers.
         """
         trace_id = logger.extract_trace_id_from_request()
         context = {
@@ -70,9 +72,17 @@ def _register_error_handlers(app: Flask, logger: LoggerDefault) -> None:
         else:
             logger.log_warning(error.log_event, **context)
 
-        return error.to_dict(request_id=trace_id), error.status_code
+        headers = {}
+        if error.status_code == 401:
+            # RFC 6750: tell the client which scheme to use and whether its token failed.
+            challenge = "Bearer"
+            if error.error_code in ("auth.token_invalid", "auth.token_expired"):
+                challenge += ' error="invalid_token"'
+            headers["WWW-Authenticate"] = challenge
 
-    def validation_error_handler(error: ValidationError) -> tuple[dict, int]:
+        return error.to_dict(request_id=trace_id), error.status_code, headers
+
+    def validation_error_handler(error: ValidationError) -> tuple[dict, int, dict]:
         """Map an unhandled Pydantic ValidationError to the standard error response.
 
         A missing field and a malformed one are different failures: reporting both as
@@ -82,7 +92,7 @@ def _register_error_handlers(app: Flask, logger: LoggerDefault) -> None:
             error: Validation error raised while building a model from client input.
 
         Returns:
-            The error body and its HTTP status code, from base_error_handler.
+            The error body, its HTTP status code and headers, from base_error_handler.
         """
         # Only loc/type/msg: input may echo sensitive data and ctx may not serialize.
         errors = [
@@ -109,14 +119,14 @@ def _register_error_handlers(app: Flask, logger: LoggerDefault) -> None:
             )
         )
 
-    def http_error_handler(error: HTTPException) -> tuple[dict, int]:
+    def http_error_handler(error: HTTPException) -> tuple[dict, int, dict]:
         """Map an HTTP error raised by Flask or werkzeug to the standard error response.
 
         Args:
             error: HTTP error such as a 404 for an unknown route or a 405 method.
 
         Returns:
-            The error body with an ``http.<name>`` code and its HTTP status code.
+            The error body with an ``http.<name>`` code, its HTTP status code and headers.
         """
         status_code = error.code or 500
         name = (error.name or "error").lower().replace(" ", "_")
@@ -162,18 +172,25 @@ def _register_error_handlers(app: Flask, logger: LoggerDefault) -> None:
     app.register_error_handler(Exception, unhandled_error_handler)
 
 
-def create_app(blueprints: list[Blueprint], logger: LoggerDefault) -> Flask:
+def create_app(
+    blueprints: list[Blueprint],
+    logger: LoggerDefault,
+    verify_id_token: Callable[[str], str],
+) -> Flask:
     """Create and configure the Flask application.
 
     Args:
         blueprints: Blueprints to register.
         logger: Logger the error handlers report to.
+        verify_id_token: Function that turns an ID token into a uid, used by
+            ``token_required``. Injected so tests can replace Firebase.
 
     Returns:
         The configured application with its blueprints and error handlers.
     """
     app = Flask(__name__)
     app.config["logger"] = logger
+    app.config[VERIFIER_CONFIG_KEY] = verify_id_token
 
     # Avoid flask auto-sort keys in api response (preserves ordering)
     app.json.sort_keys = False
