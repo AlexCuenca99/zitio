@@ -175,15 +175,16 @@ def _register_error_handlers(app: Flask, logger: LoggerDefault) -> None:
 def create_app(
     blueprints: list[Blueprint],
     logger: LoggerDefault,
-    verify_id_token: Callable[[str], str],
+    verify_id_token: Callable[[str], dict],
 ) -> Flask:
     """Create and configure the Flask application.
 
     Args:
         blueprints: Blueprints to register.
         logger: Logger the error handlers report to.
-        verify_id_token: Function that turns an ID token into a uid, used by
-            ``token_required``. Injected so tests can replace Firebase.
+        verify_id_token: Function that turns an ID token into its identity dict
+            (``uid``, ``email``), used by ``token_required``. Injected so tests can
+            replace Firebase.
 
     Returns:
         The configured application with its blueprints and error handlers.
@@ -211,10 +212,10 @@ def create_app(
             response: Response about to be sent.
 
         Returns:
-            The same response, with ``meta.exec_seconds`` when its status is 200.
+            The same response, with ``meta.exec_seconds`` when its status is 2xx.
         """
         # Append execution time and keep existing logic
-        if response.status_code == 200:
+        if 200 <= response.status_code < 300:
             append_time_execution_after_request(response)
         return response
 

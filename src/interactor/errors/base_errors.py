@@ -225,6 +225,38 @@ class NotFoundError(BaseError):
         )
 
 
+class ConflictError(BaseError):
+    """Raised when the request conflicts with the current state of a resource."""
+
+    def __init__(
+        self,
+        code: str,
+        *,
+        message: str | None = None,
+        search_params: dict | None = None,
+        scope: str | None = None,
+    ):
+        """Initialize the error from its catalog code.
+
+        Args:
+            code: Error code from the catalog (e.g. "users.already_exists").
+            message: Technical reason in English, used in logs only.
+            search_params: Identifiers of the conflicting resource, e.g. ``{"uid": "..."}``.
+                Its keys become ``param``, comma separated.
+            scope: Operation or flow where the conflict happened (e.g. "create").
+        """
+        search_params = search_params or {}
+        kwargs = _from_catalog(code, 409)
+        if message:
+            kwargs["message"] = message
+        kwargs["client_message"] = kwargs["client_message"] or "El recurso ya existe."
+        super().__init__(
+            **kwargs,
+            param=", ".join(search_params) or None,
+            details={"scope": scope, "search_params": search_params},
+        )
+
+
 class UnauthenticatedError(BaseError):
     """Raised when the request carries no valid credentials."""
 

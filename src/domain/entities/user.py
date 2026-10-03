@@ -1,4 +1,4 @@
-"""This module defines the User entity."""
+"""This module defines the User entity: the Zitio profile linked to a Firebase account."""
 
 # Natives
 from __future__ import annotations
@@ -11,6 +11,8 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class Gender(str, Enum):
+    """Gender a user may declare."""
+
     MALE = "male"
     FEMALE = "female"
     NON_BINARY = "non_binary"
@@ -19,17 +21,33 @@ class Gender(str, Enum):
 
 
 class UserRole(str, Enum):
+    """Role of a user: drivers book slots, owners publish parking lots."""
+
     DRIVER = "driver"
     OWNER = "owner"
 
 
 class HistorySummary(BaseModel):
+    """Booking counters of a user."""
+
     total_bookings: int = Field(default=0, ge=0)
     no_shows: int = Field(default=0, ge=0)
 
     @field_validator("no_shows")
     @classmethod
     def validate_no_shows(cls, value: int, info) -> int:
+        """Check that no-shows never exceed the total bookings.
+
+        Args:
+            value: Number of no-shows.
+            info: Validation info with the fields validated so far.
+
+        Returns:
+            The number of no-shows.
+
+        Raises:
+            ValueError: If no_shows is greater than total_bookings.
+        """
         total_bookings = info.data.get("total_bookings")
         if total_bookings is not None and value > total_bookings:
             raise ValueError("no_shows cannot be greater than total_bookings.")
@@ -37,6 +55,8 @@ class HistorySummary(BaseModel):
 
 
 class User(BaseModel):
+    """Zitio profile of a user. Credentials live in Firebase Auth, never here."""
+
     # Identificador principal del usuario en el sistema/Firebase
     uid: str = Field(min_length=1, max_length=100)
 
@@ -58,7 +78,6 @@ class User(BaseModel):
     username: str | None = Field(
         default=None, min_length=3, max_length=30, pattern=r"^[a-zA-Z0-9_.-]+$"
     )
-    password: str | None = Field(default=None, min_length=8, max_length=128)
 
     is_active: bool = True
 
@@ -67,26 +86,20 @@ class User(BaseModel):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     deleted_at: datetime | None = None
 
-    @field_validator("password")
-    @classmethod
-    def validate_password_strength(cls, value: str | None) -> str | None:
-        if value is None:
-            return value
-
-        has_upper = any(c.isupper() for c in value)
-        has_lower = any(c.islower() for c in value)
-        has_digit = any(c.isdigit() for c in value)
-        has_special = any(not c.isalnum() for c in value)
-
-        if not (has_upper and has_lower and has_digit and has_special):
-            raise ValueError(
-                "Password must include at least one uppercase letter, one lowercase letter, one digit, and one special character."
-            )
-        return value
-
     @field_validator("birth_date")
     @classmethod
     def validate_birth_date(cls, value: date | None) -> date | None:
+        """Check that the user is at least 13 years old.
+
+        Args:
+            value: Date of birth, if given.
+
+        Returns:
+            The date of birth.
+
+        Raises:
+            ValueError: If the user is younger than 13.
+        """
         if value is None:
             return value
 
@@ -99,6 +112,17 @@ class User(BaseModel):
     @field_validator("vehicle_plate")
     @classmethod
     def validate_vehicle_plate(cls, value: str | None) -> str | None:
+        """Normalize the vehicle plate to uppercase without surrounding spaces.
+
+        Args:
+            value: Vehicle plate, if given.
+
+        Returns:
+            The normalized plate.
+
+        Raises:
+            ValueError: If the plate is blank.
+        """
         if value is None:
             return value
         plate = value.strip().upper()
@@ -109,6 +133,17 @@ class User(BaseModel):
     @field_validator("phone")
     @classmethod
     def validate_phone(cls, value: str | None) -> str | None:
+        """Strip surrounding spaces from the phone.
+
+        Args:
+            value: Phone number, if given.
+
+        Returns:
+            The stripped phone number.
+
+        Raises:
+            ValueError: If the phone is blank.
+        """
         if value is None:
             return value
         phone = value.strip()
@@ -119,6 +154,17 @@ class User(BaseModel):
     @field_validator("display_name")
     @classmethod
     def validate_display_name(cls, value: str) -> str:
+        """Strip surrounding spaces from the display name.
+
+        Args:
+            value: Display name.
+
+        Returns:
+            The stripped display name.
+
+        Raises:
+            ValueError: If the display name is blank.
+        """
         name = value.strip()
         if not name:
             raise ValueError("display_name cannot be empty.")

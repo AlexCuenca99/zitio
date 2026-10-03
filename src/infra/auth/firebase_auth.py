@@ -38,14 +38,15 @@ def get_firebase_app() -> firebase_admin.App:
     return firebase_admin.initialize_app(credential=credential, options=options)
 
 
-def verify_id_token(token: str) -> str:
-    """Verify a Firebase ID token and return the user it belongs to.
+def verify_id_token(token: str) -> dict:
+    """Verify a Firebase ID token and return the identity it carries.
 
     Args:
         token: Firebase ID token sent by the client as a Bearer token.
 
     Returns:
-        The uid of the authenticated user.
+        The authenticated identity: ``{"uid": ..., "email": ...}``. ``email`` is None for
+        accounts without one (e.g. phone or anonymous sign-in).
 
     Raises:
         UnauthenticatedError: If the token is expired ("auth.token_expired") or invalid
@@ -63,4 +64,4 @@ def verify_id_token(token: str) -> str:
     except auth.CertificateFetchError as error:
         raise InternalError("auth.internal_error", message=str(error)) from error
 
-    return decoded["uid"]
+    return {"uid": decoded["uid"], "email": decoded.get("email")}

@@ -15,6 +15,7 @@ from src.interactor.errors import (
 )
 from src.interactor.use_cases.users import UsersUseCase
 from tests.fakes import (
+    AUTHENTICATED_UID,
     VALID_TOKEN,
     InMemoryUsersRepository,
     RecordingLogger,
@@ -90,7 +91,7 @@ def test_missing_field_is_param_required():
     """A missing field answers 400 request.param_required naming the field."""
     client, _ = _client()
     error = _error(
-        client.post("/api/v1/users", json={"uid": "u1", "email": "a@b.co", "role": "driver"}),
+        client.post("/api/v1/users/me", json={"phone": "0991234567"}),
         400,
         "request.param_required",
     )
@@ -100,17 +101,18 @@ def test_missing_field_is_param_required():
 def test_invalid_field_is_param_invalid_without_echoing_input():
     """A malformed field answers 400 request.param_invalid without echoing the input."""
     client, _ = _client()
-    payload = {"uid": "u1", "display_name": "Alex", "email": "not-an-email", "role": "driver"}
-    error = _error(client.post("/api/v1/users", json=payload), 400, "request.param_invalid")
-    assert error["param"] == "email"
-    assert "not-an-email" not in str(error)
+    plate = "PLATE-TOO-LONG-1234567890"
+    payload = {"display_name": "Alex", "vehicle_plate": plate}
+    error = _error(client.post("/api/v1/users/me", json=payload), 400, "request.param_invalid")
+    assert error["param"] == "vehicle_plate"
+    assert plate not in str(error)
 
 
 def test_body_that_is_not_an_object_names_the_body():
     """A JSON list or null as body answers request.param_invalid with param "body"."""
     client, _ = _client()
     for body in ("[]", "null"):
-        response = client.post("/api/v1/users", data=body, content_type="application/json")
+        response = client.post("/api/v1/users/me", data=body, content_type="application/json")
         error = _error(response, 400, "request.param_invalid")
         assert error["param"] == "body"
         assert error["message"] == "El parámetro /body/ es inválido."
@@ -131,16 +133,16 @@ def test_unmapped_http_errors_answer_in_spanish():
 def test_malformed_json_is_bad_request():
     """A body that is not JSON answers 400 http.bad_request."""
     client, _ = _client()
-    response = client.post("/api/v1/users", data="{bad", content_type="application/json")
+    response = client.post("/api/v1/users/me", data="{bad", content_type="application/json")
     _error(response, 400, "http.bad_request")
 
 
 def test_domain_not_found():
-    """A missing user answers 404 users.not_found with the searched param and scope."""
+    """A missing profile answers 404 users.not_found with the searched param and scope."""
     client, _ = _client()
-    error = _error(client.get("/api/v1/users/nope"), 404, "users.not_found")
+    error = _error(client.get("/api/v1/users/me"), 404, "users.not_found")
     assert error["param"] == "uid"
-    assert error["details"]["search_params"] == {"uid": "nope"}
+    assert error["details"]["search_params"] == {"uid": AUTHENTICATED_UID}
     assert error["details"]["scope"] == "get"
 
 
@@ -158,7 +160,7 @@ def test_unknown_route_and_method():
     """Flask's own 404 and 405 answer in the same format with http.* codes."""
     client, _ = _client()
     _error(client.get("/api/v1/nope"), 404, "http.not_found")
-    _error(client.delete("/api/v1/users"), 405, "http.method_not_allowed")
+    _error(client.delete("/api/v1/users/me"), 405, "http.method_not_allowed")
 
 
 def test_unhandled_error_hides_details_and_logs_traceback():
@@ -173,7 +175,7 @@ def test_unhandled_error_hides_details_and_logs_traceback():
 def test_client_errors_log_as_warning():
     """Client errors are logged as warnings under their log_event key."""
     client, logger = _client()
-    client.get("/api/v1/users/nope")
+    client.get("/api/v1/users/me")
     assert ("log_warning", "users.get.not_found") in logger.calls
 
 

@@ -9,7 +9,7 @@ Backend de Zitio: los conductores buscan estacionamientos cercanos y reservan un
 dueños publican sus estacionamientos y administran su capacidad. Expone una API REST sobre
 Flask, persiste en Firestore y autentica con Firebase Authentication.
 
-> **Estado:** en desarrollo. Disponibles: health check, usuarios y autenticación. El resto
+> **Estado:** en desarrollo. Disponibles: health check, autenticación y perfil de usuario. El resto
 > del alcance está en el [roadmap](#roadmap).
 
 ## Índice
@@ -129,22 +129,32 @@ curl -s http://localhost:5000/api/v1/health
 {"status": "ok", "services": {"firestore": true}, "meta": {"exec_seconds": 0.01}}
 ```
 
-Los endpoints de usuarios requieren un token de Firebase. En local se obtiene del emulador
-de Auth; el ciclo completo está en [docs/authentication.md](docs/authentication.md).
+Los endpoints de usuarios requieren un token de Firebase y actúan siempre sobre el perfil
+del dueño del token: el `uid` y el `email` salen del token, nunca del body. En local el
+token se obtiene del emulador de Auth; el ciclo completo está en
+[docs/authentication.md](docs/authentication.md).
+
+Crear el perfil (todo perfil nace con `role: "driver"`):
 
 ```sh
-curl -s -X POST http://localhost:5000/api/v1/users \
+curl -s -X POST http://localhost:5000/api/v1/users/me \
   -H "Authorization: Bearer <idToken>" \
   -H "Content-Type: application/json" \
-  -d '{"uid": "u1", "display_name": "Ana", "email": "ana@zitio.com", "role": "driver"}'
+  -d '{"display_name": "Ana", "vehicle_plate": "pbx-1234"}'
+```
+
+```json
+{"status": "success", "data": {"uid": "<uid del token>", "display_name": "Ana", "email": "<email del token>", "vehicle_plate": "PBX-1234", "role": "driver", "...": "..."}}
 ```
 
 | Método | Ruta | Descripción |
 |---|---|---|
 | `GET` | `/api/v1/health` | Estado del servicio y de Firestore. Público. |
-| `POST` | `/api/v1/users` | Crea un usuario. |
-| `GET` | `/api/v1/users` | Lista los usuarios. |
-| `GET` | `/api/v1/users/{uid}` | Obtiene un usuario. |
+| `POST` | `/api/v1/users/me` | Crea el perfil: `display_name` (obligatorio), `phone`, `vehicle_plate`. `201`, o `409 users.already_exists` si ya existe. |
+| `GET` | `/api/v1/users/me` | Devuelve el perfil, o `404 users.not_found` si aún no se creó. |
+| `PATCH` | `/api/v1/users/me` | Actualiza `display_name`, `phone` y/o `vehicle_plate`. |
+
+Cualquier otro campo en el body (`uid`, `email`, `role`...) responde `400 request.param_invalid`.
 
 ### Errores
 
@@ -232,7 +242,7 @@ herramientas y los tests, con el emulador de Firestore, en cada PR a `stage` y `
 El alcance está en los [issues abiertos](https://github.com/AlexCuenca99/zitio/issues).
 Próximos:
 
-- Perfil de usuario ligado a Firebase (`/users/me`) y roles conductor/dueño
+- Roles conductor/dueño, con aprobación de dueños
 - Registro y búsqueda geoespacial de estacionamientos
 - Reservas atómicas, check-in con QR y check-out con cobro
 - Despliegue en Cloud Run
