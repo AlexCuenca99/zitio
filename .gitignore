@@ -264,6 +264,3 @@ cython_debug/
 
 # GCloud SDK
 credentials/service-account.json
-
-# Baselines
-.secrets.baseline

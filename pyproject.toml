@@ -17,3 +17,8 @@ docstring-code-line-length = 20
 
 [tool.bandit]
 exclude_dirs = ["tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"

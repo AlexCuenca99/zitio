@@ -1,3 +1,5 @@
+name: zitio-prod
+
 services:
   app-prod:
     build:
@@ -12,14 +14,15 @@ services:
       - DOCKER_LIMITS_MEMORY=${DOCKER_LIMITS_MEMORY:-256M}
       - DOCKER_NETWORK=${DOCKER_NETWORK:-enviame-gce-proxies}
       - FIRESTORE_EMULATOR_HOST=firestore-prod:${DOCKER_FIRESTORE_EMULATOR_PORT:-8200}
-      - FIRESTORE_PROJECT_ID=${PROJECT_ID:-zitio}
+      - FIREBASE_AUTH_EMULATOR_HOST=firebase-auth-prod:9099
     ports:
       - "${DOCKER_HOST_PORT:?DOCKER_HOST_PORT environment variable is required}:${DOCKER_API_PORT:-8080}"
     volumes:
       - ../../../:/app/
-    command: python -m debugpy --listen 0.0.0.0:5678 -m gunicorn --bind :8080 --workers 1 --timeout 500 src.main:app --reload
     depends_on:
       firestore-prod:
+        condition: service_started
+      firebase-auth-prod:
         condition: service_started
 
   firestore-prod:
@@ -29,3 +32,13 @@ services:
       - PORT=${DOCKER_FIRESTORE_EMULATOR_PORT:-8200}
     ports:
       - "${DOCKER_FIRESTORE_EMULATOR_HOST_PORT:?DOCKER_FIRESTORE_EMULATOR_HOST_PORT environment variable is required}:${DOCKER_FIRESTORE_EMULATOR_PORT:-8200}"
+
+  # Firebase Auth emulator: issues unsigned ID tokens the app accepts locally.
+  firebase-auth-prod:
+    image: node:22-alpine
+    working_dir: /emulator
+    command: npx -y firebase-tools@15.32.1 emulators:start --only auth --project ${PROJECT_ID:-zitio}
+    volumes:
+      - ./firebase.json:/emulator/firebase.json:ro
+    ports:
+      - "${DOCKER_FIREBASE_AUTH_EMULATOR_HOST_PORT:-9099}:9099"

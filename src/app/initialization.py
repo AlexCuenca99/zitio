@@ -1,14 +1,16 @@
 """Application initialization module."""
 
-from src.infra.db.firestore import firestore_client
+from google.cloud.firestore import Client
+
 from src.interactor.interfaces.logger import LoggerInterface
 
 
 class ConnectionInitializer:
     """Handles application connection initialization at startup."""
 
-    def __init__(self, logger: LoggerInterface):
+    def __init__(self, logger: LoggerInterface, firestore_client: Client):
         self.logger = logger
+        self.firestore_client = firestore_client
 
     def initialize_all(self) -> bool:
         """Initialize all connections at application startup."""
@@ -26,7 +28,7 @@ class ConnectionInitializer:
     def initialize_firestore(self) -> bool:
         """Initialize Firestore connection."""
         try:
-            list(firestore_client.collections())
+            list(self.firestore_client.collections())
             self.logger.log_info("✓ Firestore connection OK")
             return True
         except Exception as e:

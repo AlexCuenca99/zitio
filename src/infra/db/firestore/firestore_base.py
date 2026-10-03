@@ -1,33 +1,34 @@
-"""This module defines base classes for Firestore connections."""
+"""This module defines the Firestore client factory."""
+
+# Natives
+import os
+from functools import cache
 
 # Third-parties
 from google.cloud import firestore
+from google.oauth2 import service_account
 
 # Locals
-from configs import config
+from configs.config import settings
 
 
-def _build_firestore_client():
+@cache
+def get_firestore_client() -> firestore.Client:
     """
-    Build a Firestore client using credentials and project configuration.
+    Return the process-wide Firestore client, built on first use.
+
+    pydantic-settings reads the .env file without exporting it, so the emulator host and the
+    credentials file are handed to the SDK here instead of relying on os.environ.
     """
-    return firestore.Client(project=config.GCP_PROJECT_ID)
+    if settings.firestore.emulator_host:
+        # The SDK only detects the emulator through this variable; it uses anonymous credentials.
+        os.environ["FIRESTORE_EMULATOR_HOST"] = settings.firestore.emulator_host
+        return firestore.Client(project=settings.project_id)
 
+    credentials = None
+    if settings.google_application_credentials:
+        credentials = service_account.Credentials.from_service_account_file(
+            settings.google_application_credentials
+        )
 
-firestore_client = _build_firestore_client()
-
-
-class BaseFirestoreRepository:
-    """Base class for Firestore repositories."""
-
-    def __init__(self, firestore_client=firestore_client):
-        self.firestore = firestore_client
-
-    def health_check(self) -> bool:
-        """Check if Firestore connection is alive."""
-        try:
-            # Small metadata query to validate the client.
-            list(self.firestore.collections())
-            return True
-        except Exception:
-            return False
+    return firestore.Client(project=settings.project_id, credentials=credentials)

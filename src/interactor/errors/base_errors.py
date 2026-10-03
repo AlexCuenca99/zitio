@@ -1,33 +1,60 @@
-"""This module defines the base error classes for the application"""
+"""This module defines the error classes the API raises, one per kind of failure."""
+
+from src.interactor.errors.catalog import ERROR_CATALOG
 
 
 class BaseError(Exception):
-    """
-    Raised when an error occurs.
+    """Base class of every error the API answers with.
+
+    Subclasses model the kind of failure (not found, invalid parameter, internal...).
+    The code is data: it names the entity and event (e.g. "users.not_found") and must
+    exist in ``ERROR_CATALOG``, which supplies its status, type and entity name. Add a
+    subclass only for a domain rule that callers catch on its own or that builds its
+    message from its own data.
+
+    ``scope`` (stored in ``details``) names where the error happened: the operation for
+    an entity error (e.g. "get") or the owning flow for a generic one. It never changes
+    the code, which is the client contract; it only enriches ``log_event``.
+
+    Attributes:
+        message: Internal technical message in English, used in logs.
+        client_message: User-facing message in Spanish, used in API responses.
+        status_code: HTTP status code for the error.
+        entity_name: Spanish name of the entity involved.
+        error_code: Stable dot-notation code (e.g. "users.not_found").
+        error_type: Error category ("invalid_request_error" or "api_error").
+        param: Related parameter name, if any.
+        details: Extra structured data for debugging and monitoring.
     """
 
     def __init__(
         self,
         status_code: int = 400,
         message: str | None = None,
+        client_message: str | None = None,
         entity_name: str = "elemento",
-        error_code: str | None = None,
+        error_code: str = "base",
         error_type: str | None = None,
         param: str | None = None,
         details: dict | None = None,
     ):
-        """
-        Initializes the instance with the given parameters.
+        """Initialize the error.
+
         Args:
-            status_code: The status code of the error.
-            message: The message of the error.
-            entity_name: The name of the entity.
-            error_code: Stable error code (eg. "users.not_found").
-            error_type: Error category (eg. "invalid_request_error", "api_error").
-            param: Related parameter name (if any).
-            details: Extra structured details for debugging/monitoring.
+            status_code: HTTP status code for the error.
+            message: Internal technical message in English, used in logs.
+            client_message: User-facing message in Spanish, used in API responses.
+                Falls back to message if not provided.
+            entity_name: Spanish name of the entity involved.
+            error_code: Stable dot-notation code (e.g. "users.not_found").
+            error_type: Error category ("invalid_request_error" or "api_error").
+            param: Related parameter name, if any.
+            details: Extra structured data for debugging and monitoring.
         """
-        super().__init__(message or "Error en el servicio.")
+        msg = message or "Error en el servicio."
+        super().__init__(msg)
+        self.message = msg
+        self.client_message = client_message
         self.status_code = status_code
         self.entity_name = entity_name
         self.error_code = error_code
@@ -36,110 +63,215 @@ class BaseError(Exception):
         self.details = details or {}
 
     def to_dict(self, request_id: str | None = None) -> dict:
-        """Serialize the error into a consistent JSON payload."""
-        payload = {
+        """Serialize the error into the API error body.
+
+        Args:
+            request_id: Trace id of the request, so the client can report it.
+
+        Returns:
+            The body ``{"status": "fail", "error": {...}}`` every error response shares.
+        """
+        return {
+            "status": "fail",
             "error": {
                 "type": self.error_type or "invalid_request_error",
                 "code": self.error_code,
-                "message": str(self),
+                "message": self.client_message or str(self),
                 "param": self.param,
                 "details": self.details or None,
                 "request_id": request_id,
-            }
+            },
         }
-        return payload
+
+    @property
+    def log_event(self) -> str:
+        """Build the observability key for structured logging.
+
+        Returns:
+            ``<entity>.<scope>.<event>`` when the error has a scope (e.g.
+            "users.get.not_found"), otherwise the error code itself.
+        """
+        scope = self.details.get("scope")
+        if not scope or "." not in self.error_code:
+            return self.error_code
+        entity, event = self.error_code.split(".", 1)
+        return f"{entity}.{str(scope).lower()}.{event}"
 
 
-class BaseParamRequiredError(BaseError):
+def _from_catalog(code: str, default_status: int) -> dict:
+    """Resolve the BaseError keyword arguments a catalog code defines.
+
+    Args:
+        code: Error code to look up in ``ERROR_CATALOG``.
+        default_status: Status used when the code is missing from the catalog.
+
+    Returns:
+        The ``status_code``, ``error_code``, ``error_type``, ``message`` and
+        ``client_message`` keyword arguments for ``BaseError``.
     """
-    Raised when a required parameter is not provided.
-    """
+    entry = ERROR_CATALOG.get(code, {})
+    status_code = entry.get("http_status", default_status)
+    return {
+        "status_code": status_code,
+        "error_code": code,
+        "error_type": entry.get(
+            "type", "api_error" if status_code >= 500 else "invalid_request_error"
+        ),
+        "message": entry.get("message"),
+        "client_message": entry.get("client_message"),
+    }
+
+
+class ParamRequiredError(BaseError):
+    """Raised when a required parameter is missing."""
 
     def __init__(
         self,
-        status_code: int = 400,
+        code: str = "request.param_required",
+        *,
         param_name: str | None = None,
-        entity_name: str | None = None,
-        error_code: str | None = None,
-        error_type: str | None = None,
-        details: dict | None = None,
+        scope: str | None = None,
     ):
-        """
-        Initializes the instance with the given parameters.
+        """Initialize the error from its catalog code.
+
         Args:
-            status_code: The status code of the error.
-            param_name: The name of the parameter.
-            entity_name: The name of the entity.
+            code: Error code from the catalog (e.g. "users.param_required").
+            param_name: Dot-notation path of the missing parameter.
+            scope: Operation or model the parameter belongs to.
         """
         message = (
             f"El parámetro /{param_name}/ es requerido."
             if param_name
             else "Un parámetro es requerido."
         )
+        kwargs = _from_catalog(code, 400)
+        kwargs.update(message=message, client_message=message)
         super().__init__(
-            status_code=status_code,
-            message=message,
-            entity_name=entity_name or "elemento",
-            error_code=error_code,
-            error_type=error_type,
+            **kwargs,
             param=param_name,
-            details=details,
+            details={"scope": scope, "param_name": param_name},
         )
 
 
-class BaseItemNotFoundError(BaseError):
-    """
-    Raised when an item is not found.
-    """
+class ParamInvalidError(BaseError):
+    """Raised when a parameter is present but does not meet its constraints."""
 
     def __init__(
         self,
-        status_code: int = 404,
-        search_params: dict | None = None,
-        possibly_unavailable: bool = False,
-        possibly_hidden: bool = False,
-        entity_name: str = "elemento",
-        error_code: str | None = None,
-        error_type: str | None = None,
-        details: dict | None = None,
+        code: str = "request.param_invalid",
+        *,
+        param_name: str | None = None,
+        reason: str | None = None,
+        scope: str | None = None,
+        errors: list[dict] | None = None,
     ):
-        """Initializes the instance with the given parameters.
+        """Initialize the error from its catalog code.
 
         Args:
-            status_code: The status code of the error.
-            search_params: The parameters used to search the entity.
-            possibly_unavailable: Whether the entity could be unavailable.
-            possibly_hidden: Whether the entity could be hidden.
-            entity_name: The name of the entity.
+            code: Error code from the catalog.
+            param_name: Dot-notation path of the offending parameter.
+            reason: Technical reason in English, used in logs.
+            scope: Operation or model the validation belongs to.
+            errors: Every validation error found, not just the first one.
         """
-        message = f"El(la) {entity_name} no fue encontrado(a)."
-
-        if isinstance(search_params, dict) and search_params:
-            mapped_search_params = ", ".join(
-                f"{key}: {value}" for key, value in search_params.items()
-            )
-            message = (
-                f"El(la) {entity_name} con los parámetros de búsqueda "
-                f"{mapped_search_params} no fue encontrado(a)."
-            )
-
-        if possibly_unavailable:
-            message += f" El(la) {entity_name} podría estar no activo(a) o eliminado(a)."
-
-        if possibly_hidden:
-            message += f" El(la) {entity_name} podría estar oculto(a)."
-
-        combined_details = dict(details or {})
-        if isinstance(search_params, dict):
-            combined_details.setdefault("search_params", search_params)
-        combined_details.setdefault("possibly_unavailable", possibly_unavailable)
-        combined_details.setdefault("possibly_hidden", possibly_hidden)
-
-        super().__init__(
-            status_code=status_code,
-            message=message,
-            entity_name=entity_name,
-            error_code=error_code,
-            error_type=error_type,
-            details=combined_details,
+        kwargs = _from_catalog(code, 400)
+        kwargs.update(
+            message=f"{param_name}: {reason}" if reason else "Invalid parameter.",
+            client_message=f"El parámetro /{param_name}/ es inválido.",
         )
+        super().__init__(
+            **kwargs,
+            param=param_name,
+            details={"scope": scope, "param_name": param_name, "errors": errors},
+        )
+
+
+class NotFoundError(BaseError):
+    """Raised when a resource is not found, whatever the lookup criteria."""
+
+    def __init__(
+        self,
+        code: str = "resource.not_found",
+        *,
+        search_params: dict | None = None,
+        scope: str | None = None,
+    ):
+        """Initialize the error from its catalog code.
+
+        Args:
+            code: Error code from the catalog (e.g. "users.not_found").
+            search_params: Every criterion the lookup used, e.g. ``{"uid": "..."}`` or
+                ``{"first_name": "Ana", "last_name": "Pérez"}``. Its keys become
+                ``param``, comma separated.
+            scope: Operation or flow where the lookup happened (e.g. "get").
+        """
+        search_params = search_params or {}
+        entity_name = ERROR_CATALOG.get(code, {}).get("entity_name", "elemento")
+        message = f"El(la) {entity_name} no fue encontrado(a)."
+        if search_params:
+            criteria = ", ".join(f"{key}: {value}" for key, value in search_params.items())
+            message = (
+                f"El(la) {entity_name} con los parámetros de búsqueda {criteria} "
+                "no fue encontrado(a)."
+            )
+
+        kwargs = _from_catalog(code, 404)
+        kwargs.update(message=message, client_message=message)
+        super().__init__(
+            **kwargs,
+            entity_name=entity_name,
+            param=", ".join(search_params) or None,
+            details={"scope": scope, "search_params": search_params},
+        )
+
+
+class UnauthenticatedError(BaseError):
+    """Raised when the request carries no valid credentials."""
+
+    def __init__(
+        self,
+        code: str = "auth.token_invalid",
+        *,
+        message: str | None = None,
+        scope: str | None = None,
+    ):
+        """Initialize the error from its catalog code.
+
+        Args:
+            code: Error code from the catalog (e.g. "auth.token_expired").
+            message: Technical reason in English, used in logs only.
+            scope: Operation or flow that required authentication.
+        """
+        kwargs = _from_catalog(code, 401)
+        if message:
+            kwargs["message"] = message
+        # The verifier's reason may reveal internals; the client gets the catalog message.
+        kwargs["client_message"] = kwargs["client_message"] or "No autenticado."
+        super().__init__(**kwargs, details={"scope": scope} if scope else None)
+
+
+class InternalError(BaseError):
+    """Raised when the service fails on its own side; the client never sees the cause."""
+
+    def __init__(
+        self,
+        code: str = "internal_error",
+        *,
+        message: str | None = None,
+        scope: str | None = None,
+        details: dict | None = None,
+    ):
+        """Initialize the error from its catalog code.
+
+        Args:
+            code: Error code from the catalog (e.g. "users.internal_error").
+            message: Technical reason in English, used in logs only.
+            scope: Operation or flow that failed (e.g. "create").
+            details: Extra structured data for the logs.
+        """
+        kwargs = _from_catalog(code, 500)
+        if message:
+            kwargs["message"] = message
+        # The technical message must never reach the client.
+        kwargs["client_message"] = kwargs["client_message"] or "Ocurrió un error interno."
+        super().__init__(**kwargs, details={**(details or {}), "scope": scope})
