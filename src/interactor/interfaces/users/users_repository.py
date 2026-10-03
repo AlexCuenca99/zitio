@@ -1,9 +1,8 @@
-"""Contract for User repositories."""
+"""This module defines the contract every users repository implements."""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import List, Optional
 
 from src.domain.entities.user import User
 
@@ -13,15 +12,39 @@ class UsersRepositoryInterface(ABC):
 
     @abstractmethod
     def create(self, user: User) -> User:
-        """Persist a user and return the persisted entity."""
-        ...
+        """Persist a new user, never overwriting an existing one.
+
+        Args:
+            user: User to persist; its uid is the document id.
+
+        Returns:
+            The persisted user.
+
+        Raises:
+            ConflictError: If a user with that uid already exists ("users.already_exists").
+        """
 
     @abstractmethod
-    def get_by_uid(self, uid: str) -> Optional[User]:
-        """Return a user by uid or None if not found."""
-        ...
+    def get_by_uid(self, uid: str) -> User | None:
+        """Get a user by uid.
+
+        Args:
+            uid: Identifier of the user.
+
+        Returns:
+            The user, or None when it does not exist.
+        """
 
     @abstractmethod
-    def list_all(self) -> List[User]:
-        """Return all users."""
-        ...
+    def update(self, user: User) -> User:
+        """Replace the stored data of an existing user.
+
+        Args:
+            user: User with the new data; its uid selects the document.
+
+        Returns:
+            The updated user.
+
+        Raises:
+            NotFoundError: If no user has that uid ("users.not_found").
+        """

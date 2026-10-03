@@ -10,6 +10,7 @@ tokens; el backend solo verifica que cada token sea auténtico.
 - [Ciclo de vida en producción](#ciclo-de-vida-en-producción)
 - [Ciclo de vida en local](#ciclo-de-vida-en-local)
 - [Obtener un token en local](#obtener-un-token-en-local)
+- [Usuarios del emulador](#usuarios-del-emulador)
 - [Respuestas de error](#respuestas-de-error)
 
 ## Actores
@@ -42,7 +43,10 @@ tokens; el backend solo verifica que cada token sea auténtico.
      Firebase. Nunca se envía a la API.
 2. **Perfil de negocio.** El usuario de Firebase solo tiene la identidad. Los datos de
    Zitio (`display_name`, `role`, `vehicle_plate`...) viven en la colección `users` de
-   Firestore, con el `uid` como id. El backend toma el `uid` **del token**, nunca del body.
+   Firestore, con el `uid` como id. La app crea el perfil con `POST /api/v1/users/me`; el
+   backend toma el `uid` y el `email` **del token**, nunca del body, y todo perfil nace con
+   `role: "driver"`. Ser dueño requiere una solicitud aprobada
+   ([#18](https://github.com/AlexCuenca99/zitio/issues/18)).
 3. **Cada request** lleva `Authorization: Bearer <ID token>`. El ID token es un JWT firmado
    por Google. El decorador `@token_required` lo verifica con
    `firebase_admin.auth.verify_id_token`, que comprueba:
@@ -50,8 +54,8 @@ tokens; el backend solo verifica que cada token sea auténtico.
    - que `aud` sea **este** proyecto de Firebase;
    - que no haya expirado.
 
-   Si es válido, el `uid` queda en `flask.g.uid`. La verificación es local: no hay una
-   llamada a Firebase por request.
+   Si es válido, el `uid` y el `email` quedan en `flask.g.uid` y `flask.g.email`. La
+   verificación es local: no hay una llamada a Firebase por request.
 4. **Renovación.** El SDK del cliente renueva el ID token con el refresh token antes de que
    expire. Si llega uno expirado, la API responde `auth.token_expired`.
 5. **Logout.** `signOut()` borra los tokens del dispositivo. Un ID token ya emitido sigue
@@ -112,11 +116,64 @@ El emulador emite tokens con `aud` igual a su `--project`, que el compose toma d
 3. Llama a la API con el token:
 
    ```sh
-   curl -s http://localhost:5000/api/v1/users -H "Authorization: Bearer <idToken>"
+   curl -s -X POST http://localhost:5000/api/v1/users/me -H "Authorization: Bearer <idToken>" -H "Content-Type: application/json" -d '{"display_name": "Ana"}'
+   curl -s http://localhost:5000/api/v1/users/me -H "Authorization: Bearer <idToken>"
    ```
 
-El token dura 1 hora. Los usuarios del emulador viven en memoria: se pierden al reiniciar
-el contenedor.
+El token dura 1 hora: para obtener otro, inicia sesión de nuevo
+([ver abajo](#recuperar-el-token-de-un-usuario-existente)).
+
+## Usuarios del emulador
+
+Los usuarios viven **en la memoria del proceso del emulador**: no hay volúmenes ni
+export/import configurados. Duran mientras el contenedor siga corriendo:
+
+| Acción | ¿Se conservan los usuarios? |
+|---|---|
+| Volver a ejecutar `docker compose up -d` con el contenedor corriendo | Sí: el contenedor no se recrea. |
+| `docker restart`, `docker compose stop`/`down`, reiniciar Docker | No: el emulador arranca vacío. |
+
+En los comandos de esta sección, `zitio` es el `PROJECT_ID` del emulador.
+
+### Recuperar el token de un usuario existente
+
+`signUp` responde `EMAIL_EXISTS` si el email ya está registrado. En ese caso inicia sesión,
+como lo haría la app con `signInWithEmailAndPassword`. La respuesta trae un `idToken` nuevo
+y el mismo `localId`:
+
+```sh
+curl -s -X POST "http://localhost:9099/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=any" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "<email>", "password": "<password>", "returnSecureToken": true}'  # pragma: allowlist secret
+```
+
+### Listar los usuarios
+
+```sh
+curl -s -X POST "http://localhost:9099/identitytoolkit.googleapis.com/v1/projects/zitio/accounts:query" \
+  -H "Authorization: Bearer owner" -H "Content-Type: application/json" -d '{}'
+```
+
+Cada usuario trae su `localId` (el `uid`) y su `email`. **Solo en el emulador**, la
+contraseña aparece en texto plano dentro de `passwordHash`
+(`fakeHash:salt=...:password=<la contraseña>`); en Firebase real nadie puede verla.
+
+### Borrar todos los usuarios
+
+Sin reiniciar el contenedor:
+
+```sh
+curl -X DELETE "http://localhost:9099/emulator/v1/projects/zitio/accounts"
+```
+
+> **Ojo:** los perfiles creados con `POST /api/v1/users/me` viven en el **emulador de
+> Firestore**, no en el de Auth. Si borras los usuarios de Auth y te registras de nuevo,
+> tendrás otro `uid` y el perfil anterior quedará huérfano. Para empezar de cero, reinicia
+> ambos emuladores:
+>
+> ```sh
+> docker compose -f docker/local/prod/docker-compose.prod.yaml restart firestore-prod firebase-auth-prod
+> ```
 
 ## Respuestas de error
 

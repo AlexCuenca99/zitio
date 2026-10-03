@@ -107,7 +107,7 @@ def test_valid_token_exposes_the_uid(scheme):
 
 @pytest.mark.parametrize(
     ("method", "path"),
-    [("post", "/api/v1/users"), ("get", "/api/v1/users"), ("get", "/api/v1/users/u1")],
+    [("post", "/api/v1/users/me"), ("get", "/api/v1/users/me"), ("patch", "/api/v1/users/me")],
 )
 def test_users_endpoints_require_a_token(method, path):
     """Every users endpoint answers 401 before running its logic when no token is sent.
@@ -186,14 +186,16 @@ def test_unreachable_certificates_are_an_internal_error(monkeypatch):
 
 
 def test_verified_token_returns_its_uid(monkeypatch):
-    """A token Firebase accepts yields the uid it carries.
+    """A token Firebase accepts yields the uid and email it carries.
 
     Args:
         monkeypatch: Pytest fixture to replace the Firebase SDK call.
     """
     monkeypatch.setattr(firebase_auth, "get_firebase_app", lambda: None)
-    monkeypatch.setattr(
-        firebase_auth.auth, "verify_id_token", lambda token, app: {"uid": "firebase-uid"}
-    )
+    claims = {"uid": "firebase-uid", "email": "ana@zitio.com", "email_verified": False}
+    monkeypatch.setattr(firebase_auth.auth, "verify_id_token", lambda token, app: claims)
 
-    assert firebase_auth.verify_id_token("any-token") == "firebase-uid"
+    assert firebase_auth.verify_id_token("any-token") == {
+        "uid": "firebase-uid",
+        "email": "ana@zitio.com",
+    }

@@ -2,6 +2,7 @@
 
 from .base_errors import (
     BaseError,
+    ConflictError,
     InternalError,
     NotFoundError,
     ParamInvalidError,
@@ -13,6 +14,7 @@ from .catalog import ERROR_CATALOG
 __all__ = [
     "ERROR_CATALOG",
     "BaseError",
+    "ConflictError",
     "InternalError",
     "NotFoundError",
     "ParamInvalidError",

@@ -10,14 +10,15 @@ from flask import current_app, g, request
 # Locals
 from src.interactor.errors import UnauthenticatedError
 
-# app.config key holding the function that turns an ID token into a uid.
+# app.config key holding the function that turns an ID token into its identity dict.
 VERIFIER_CONFIG_KEY = "ID_TOKEN_VERIFIER"
 
 
 def token_required(view: Callable) -> Callable:
     """Require a valid ``Authorization: Bearer <token>`` header on a view.
 
-    The verified uid is stored in ``flask.g.uid`` for the view to use.
+    The verified identity is stored in ``flask.g.uid`` and ``flask.g.email`` for the view
+    to use; the email is None for accounts without one.
 
     Args:
         view: Flask view function to protect.
@@ -46,7 +47,9 @@ def token_required(view: Callable) -> Callable:
         if scheme.lower() != "bearer" or not token:
             raise UnauthenticatedError("auth.token_missing")
 
-        g.uid = current_app.config[VERIFIER_CONFIG_KEY](token)
+        identity = current_app.config[VERIFIER_CONFIG_KEY](token)
+        g.uid = identity["uid"]
+        g.email = identity.get("email")
         return view(*args, **kwargs)
 
     return wrapper
