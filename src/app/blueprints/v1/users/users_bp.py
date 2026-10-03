@@ -2,6 +2,7 @@
 
 from flask import Blueprint, request
 
+from src.app.auth import token_required
 from src.interactor.use_cases.users.users_use_case import UsersUseCase
 
 
@@ -13,11 +14,13 @@ def users_bp(users_use_case: UsersUseCase, version: str = "v1") -> Blueprint:
         version: API version used in the URL prefix.
 
     Returns:
-        The blueprint mounted at ``/api/<version>/users``.
+        The blueprint mounted at ``/api/<version>/users``; every endpoint requires a
+        Firebase ID token.
     """
     bp = Blueprint("users_v1", __name__, url_prefix=f"/api/{version}/users")
 
     @bp.post("")
+    @token_required
     def create_user() -> dict:
         """Create a user from the JSON body.
 
@@ -28,6 +31,7 @@ def users_bp(users_use_case: UsersUseCase, version: str = "v1") -> Blueprint:
         return users_use_case.create(payload)
 
     @bp.get("/<string:uid>")
+    @token_required
     def get_user(uid: str) -> dict:
         """Get a user by uid.
 
@@ -40,6 +44,7 @@ def users_bp(users_use_case: UsersUseCase, version: str = "v1") -> Blueprint:
         return users_use_case.get(uid)
 
     @bp.get("")
+    @token_required
     def list_users() -> dict:
         """List every user.
 

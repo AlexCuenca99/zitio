@@ -6,6 +6,7 @@ from .base_errors import (
     NotFoundError,
     ParamInvalidError,
     ParamRequiredError,
+    UnauthenticatedError,
 )
 from .catalog import ERROR_CATALOG
 
@@ -16,4 +17,5 @@ __all__ = [
     "NotFoundError",
     "ParamInvalidError",
     "ParamRequiredError",
+    "UnauthenticatedError",
 ]
